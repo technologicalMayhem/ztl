@@ -7,6 +7,6 @@ edition = "2021"
 
 [dependencies]
 tui = "0.19"
-crossterm = { path = "../crossterm" }
-color-eyre = "0.6.2"
-ropey = "1.6.0"
+crossterm = "0.26"
+color-eyre = "0.6"
+ropey = "1.6"
