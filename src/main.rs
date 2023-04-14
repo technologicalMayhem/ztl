@@ -13,6 +13,8 @@ use tui::{
     Terminal,
 };
 
+mod editor;
+
 fn main() -> Result<()> {
     // setup terminal
     enable_raw_mode()?;
