@@ -1,4 +1,10 @@
-pub struct Editor {
+use tui::{
+    buffer::Buffer,
+    layout::Rect,
+    widgets::{Paragraph, Widget},
+};
+
+pub struct Backend {
     column: usize,
     row: usize,
     lines: Vec<String>,
@@ -12,23 +18,36 @@ pub enum Direction {
     Left,
 }
 
-impl Editor {
+impl Backend {
     #[must_use]
     pub fn new() -> Self {
         Self {
             column: 0,
             row: 0,
-            lines: Vec::new(),
+            lines: vec![String::new()],
         }
     }
 
     pub fn insert(&mut self, ch: char) {
-        if let Some(line) = self.lines.get_mut(self.row) {
-            line.insert(self.column, ch);
+        if ch == '\n' {
+            let line = self.get_line();
+            if self.column == line.len() {
+                self.lines.insert(self.row + 1, String::new());
+            } else {
+                let (current, new_line) = line.split_at(self.column);
+                let current = current.to_string();
+                let new_line = new_line.to_string();
+
+                self.lines[self.row] = current;
+                self.lines.insert(self.row + 1, new_line);
+            }
+
+            self.row += 1;
+            self.column = 0;
         } else {
-            self.lines.push(String::from(ch));
+            self.get_line_mut().push(ch);
+            self.column += 1;
         }
-        self.column += 1;
     }
 
     pub fn insert_str(&mut self, str: &str) {
@@ -98,17 +117,19 @@ impl Editor {
     }
 
     pub fn remove_char(&mut self) {
-        if self.position() == (0,0) { 
+        if self.position() == (0, 0) {
             return;
         }
 
         if self.column == 0 {
             let current_line = self.get_line().to_owned();
             let line_above = unsafe { self.lines.get_unchecked_mut(self.row - 1) };
+            let line_above_len = line_above.len();
 
             line_above.push_str(&current_line);
             self.lines.remove(self.row);
             self.row -= 1;
+            self.column = line_above_len;
             let line_length = self.get_line().len();
             if self.column > line_length {
                 self.column = line_length;
@@ -131,15 +152,31 @@ impl Editor {
     }
 }
 
-impl Default for Editor {
+impl Default for Backend {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl ToString for Editor {
+impl ToString for Backend {
     fn to_string(&self) -> String {
         self.lines.join("\n")
+    }
+}
+
+pub struct Frontend<'a> {
+    backend: &'a Backend,
+}
+
+impl<'a> Frontend<'a> {
+    pub fn new(backend: &'a Backend) -> Self {
+        Self { backend }
+    }
+}
+
+impl<'a> Widget for Frontend<'a> {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        Paragraph::new(self.backend.to_string()).render(area, buf);
     }
 }
 
@@ -149,8 +186,8 @@ mod test {
 
     #[test]
     fn insert() {
-        let mut editor = Editor::new();
-        let text = "Hello World!";
+        let mut editor = Backend::new();
+        let text = "Hello\nWorld!";
 
         for ch in text.chars() {
             editor.insert(ch);
@@ -161,7 +198,7 @@ mod test {
 
     #[test]
     fn insert_str() {
-        let mut editor = Editor::new();
+        let mut editor = Backend::new();
         let text = "Hello World!";
 
         editor.insert_str(text);
@@ -171,7 +208,7 @@ mod test {
 
     #[test]
     fn insert_str_with_newline() {
-        let mut editor = Editor::new();
+        let mut editor = Backend::new();
         let text = "Hello\nwonderful\nWorld!";
 
         editor.insert_str(text);
@@ -182,7 +219,7 @@ mod test {
 
     #[test]
     fn check_movement() {
-        let editor = &mut Editor::new();
+        let editor = &mut Backend::new();
         let text = "Short Line\n===Long Line===\n===Long Line==";
 
         editor.insert_str(text);
@@ -206,14 +243,15 @@ mod test {
         move_and_check(editor, Direction::Right, (2, 14));
     }
 
-    fn move_and_check(editor: &mut Editor, direction: Direction, position: (usize, usize)) {
+    fn move_and_check(editor: &mut Backend, direction: Direction, position: (usize, usize)) {
         editor.move_cursor(direction);
         assert_eq!(editor.position(), position);
     }
 
+    //TODO: Expand test case to also check for cursor postion after removing characters.
     #[test]
     fn remove_char() {
-        let mut editor = Editor::new();
+        let mut editor = Backend::new();
 
         // We insert the text, putting our cursor at the end.
         editor.insert_str("Hello\nWorld!");
@@ -230,4 +268,6 @@ mod test {
         // We moved to the start of the document and tried to remove a character. Nothing should have happened.
         assert_eq!(editor.to_string(), "HelloWorld");
     }
+
+    //TODO: Write test case for inserting newline that splits line
 }

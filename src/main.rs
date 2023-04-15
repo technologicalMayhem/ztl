@@ -1,15 +1,13 @@
 use color_eyre::Result;
 use crossterm::{
-    event::{self, EnableBracketedPaste, Event, KeyCode, KeyModifiers},
+    event::{self, EnableBracketedPaste, Event, KeyCode, KeyEvent},
     execute,
     terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
 };
-use std::io::{self};
+use editor::{Backend as EditorBackend, Frontend as EditorFrontend, Direction};
+use std::{io::{self}, time::Duration};
 use tui::{
     backend::CrosstermBackend,
-    style::Style,
-    text::{Span, Spans},
-    widgets::Paragraph,
     Terminal,
 };
 
@@ -34,76 +32,41 @@ fn main() -> Result<()> {
 }
 
 fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>) -> Result<()> {
-    let mut text = ropey::Rope::new();
-    let mut index = 0_usize;
+    let editor = &mut EditorBackend::new();
 
     loop {
-        let spans = Spans::from(
-            text.lines()
-                .filter_map(|line| line.as_str().map(|str| Span::styled(str, Style::default())))
-                .collect::<Vec<Span>>(),
-        );
-
         terminal.draw(|f| {
-            let size = f.size();
-            let paragraph = Paragraph::new(spans).wrap(tui::widgets::Wrap { trim: false });
-            f.render_widget(paragraph, size);
+            let frontend = EditorFrontend::new(editor);
+            let area = f.size();
+            f.render_widget(frontend, area);
+            let (y, x) = editor.position();
+            let msg = "Could not convert editor position to terminal position";
+            let x: u16 = x.try_into().expect(msg);
+            let y: u16 = y.try_into().expect(msg);
+            f.set_cursor(x, y);
         })?;
 
-        match event::read()? {
-            Event::Key(key) => {
-                if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('q') {
-                    return Ok(());
-                }
-
-                if let KeyCode::Char(c) = key.code {
-                    text.insert_char(index, c);
-                    index += 1;
-                }
-
-                if key.code == KeyCode::Enter {
-                    text.insert_char(index, '\n');
-                    index += 1;
-                }
-
-                if key.code == KeyCode::Backspace {
-                    text.remove(index - 1..index);
-                    index -= 1;
-                }
+        if event::poll(Duration::from_millis(100))? {
+            match event::read()? {
+                Event::Key(KeyEvent{code, modifiers: _, kind: _, state: _}) => match code {
+                    KeyCode::Char(ch) => editor.insert(ch),
+                    KeyCode::Backspace => editor.remove_char(),
+                    KeyCode::Up => editor.move_cursor(Direction::Up),
+                    KeyCode::Right => editor.move_cursor(Direction::Right),
+                    KeyCode::Down => editor.move_cursor(Direction::Down),
+                    KeyCode::Left => editor.move_cursor(Direction::Left),
+                    KeyCode::Enter => editor.insert('\n'),
+                    KeyCode::Esc => {
+                        std::fs::write("out.txt", editor.to_string())?;
+                        return Ok(());
+                    },
+                    _ => {},
+                },
+                Event::Paste(text) => editor.insert_str(&text.replace('\r', "\n")),
+                _ => (),
             }
-            Event::Paste(string) => {
-                text.insert(index, &string);
-                index += string.len()
-            }
-            _ => (),
         }
     }
-}
-
-fn reformat_string(input: &str, max_length: usize) -> String {
-    let mut current_chunk = String::new();
-    let mut chunks: Vec<String> = Vec::new();
-    let max_length = max_length - 2;
-
-    for c in input.chars() {
-        current_chunk.push(c);
-
-        if current_chunk.len() == max_length || c == '\n' {
-            if c != '\n' {
-                current_chunk.push(' ');
-                current_chunk.push('↩');
-                current_chunk.push('\n');
-            }
-            chunks.push(current_chunk.clone());
-            current_chunk.clear();
-        }
-    }
-
-    if !current_chunk.is_empty() {
-        chunks.push(current_chunk);
-    }
-
-    chunks.concat()
 }
 
 #[derive(Debug, Default)]
