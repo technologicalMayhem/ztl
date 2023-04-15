@@ -4,6 +4,7 @@ pub struct Editor {
     lines: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy)]
 pub enum Direction {
     Up,
     Right,
@@ -12,6 +13,7 @@ pub enum Direction {
 }
 
 impl Editor {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             column: 0,
@@ -45,57 +47,93 @@ impl Editor {
     }
 
     pub fn move_cursor(&mut self, direction: Direction) {
-        // We can retrieve lines unchecked here because we know our position and how many lines
-        // there are and as long as we enter with a sane state, we should exit with one as well
-        unsafe {
-            match direction {
-                Direction::Up => {
-                    if self.row > 0 {
-                        self.row -= 1;
-                        let line_length = self.lines.get_unchecked(self.row).len();
-                        if self.column > line_length {
-                            self.column = line_length;
-                        }
-                    } else {
-                        self.column = 0;
-                    }
-                }
-                Direction::Right => {
-                    let line_length = self.lines.get_unchecked(self.row).len();
-                    if self.column < line_length {
-                        self.column += 1;
-                    } else if self.column == line_length && self.row < self.lines.len() - 1 {
-                        self.row += 1;
-                        self.column = 0;
-                    }
-                }
-                Direction::Down => {
-                    if self.row < self.lines.len() - 1 {
-                        self.row += 1;
-                        let line_length = self.lines.get_unchecked(self.row).len();
-                        if self.column > line_length {
-                            self.column = line_length;
-                        }
-                    } else {
-                        let line_length = self.lines.get_unchecked(self.row).len();
+        match direction {
+            Direction::Up => {
+                if self.row > 0 {
+                    self.row -= 1;
+                    let line_length = self.get_line().len();
+                    if self.column > line_length {
                         self.column = line_length;
                     }
+                } else {
+                    self.column = 0;
                 }
-                Direction::Left => {
-                    if self.column > 0 {
-                        self.column -= 1;
-                    } else if self.row > 0 {
-                        self.row -= 1;
-                        let line_length = self.lines.get_unchecked(self.row).len();
+            }
+            Direction::Right => {
+                let line_length = self.get_line().len();
+                if self.column < line_length {
+                    self.column += 1;
+                } else if self.column == line_length && self.row < self.lines.len() - 1 {
+                    self.row += 1;
+                    self.column = 0;
+                }
+            }
+            Direction::Down => {
+                if self.row < self.lines.len() - 1 {
+                    self.row += 1;
+                    let line_length = self.get_line().len();
+                    if self.column > line_length {
                         self.column = line_length;
                     }
+                } else {
+                    let line_length = self.get_line().len();
+                    self.column = line_length;
+                }
+            }
+            Direction::Left => {
+                if self.column > 0 {
+                    self.column -= 1;
+                } else if self.row > 0 {
+                    self.row -= 1;
+                    let line_length = self.get_line().len();
+                    self.column = line_length;
                 }
             }
         }
     }
 
+    #[must_use]
     pub fn position(&self) -> (usize, usize) {
         (self.row, self.column)
+    }
+
+    pub fn remove_char(&mut self) {
+        if self.position() == (0,0) { 
+            return;
+        }
+
+        if self.column == 0 {
+            let current_line = self.get_line().to_owned();
+            let line_above = unsafe { self.lines.get_unchecked_mut(self.row - 1) };
+
+            line_above.push_str(&current_line);
+            self.lines.remove(self.row);
+            self.row -= 1;
+            let line_length = self.get_line().len();
+            if self.column > line_length {
+                self.column = line_length;
+            }
+        } else {
+            self.column -= 1;
+            let current_line = unsafe { self.lines.get_unchecked_mut(self.row) };
+            current_line.remove(self.column);
+        }
+    }
+
+    #[must_use]
+    pub fn get_line(&self) -> &str {
+        unsafe { self.lines.get_unchecked(self.row) }
+    }
+
+    #[must_use]
+    pub fn get_line_mut(&mut self) -> &mut String {
+        unsafe { self.lines.get_unchecked_mut(self.row) }
+    }
+}
+
+impl Default for Editor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -171,5 +209,25 @@ mod test {
     fn move_and_check(editor: &mut Editor, direction: Direction, position: (usize, usize)) {
         editor.move_cursor(direction);
         assert_eq!(editor.position(), position);
+    }
+
+    #[test]
+    fn remove_char() {
+        let mut editor = Editor::new();
+
+        // We insert the text, putting our cursor at the end.
+        editor.insert_str("Hello\nWorld!");
+        editor.remove_char();
+        // This should have removed the exclamation mark.
+        assert_eq!(editor.to_string(), "Hello\nWorld");
+        editor.move_cursor(Direction::Up);
+        editor.move_cursor(Direction::Right);
+        editor.remove_char();
+        // We moved to the start of 'World' and removed a character, making the entire text one line.
+        assert_eq!(editor.to_string(), "HelloWorld");
+        editor.move_cursor(Direction::Up);
+        editor.remove_char();
+        // We moved to the start of the document and tried to remove a character. Nothing should have happened.
+        assert_eq!(editor.to_string(), "HelloWorld");
     }
 }
